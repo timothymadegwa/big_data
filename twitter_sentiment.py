@@ -4,14 +4,13 @@ import pyspark
 from pyspark.sql import SparkSession
 from pyspark.sql import SparkSession
 from pyspark.ml import Pipeline
-from pyspark.ml.feature import StringIndexer, OneHotEncoder, VectorAssembler
-from pyspark.sql.functions import col,isnan, when, count
-from pyspark.ml.classification import DecisionTreeClassifier, LogisticRegression, RandomForestClassifier
-from pyspark.ml.feature import Tokenizer,RegexTokenizer, HashingTF, StopWordsRemover,NGram, CountVectorizer, IDF
+from pyspark.ml.feature import StringIndexer
+from pyspark.ml.classification import NaiveBayes, LogisticRegression
+from pyspark.ml.feature import RegexTokenizer, StopWordsRemover,NGram, CountVectorizer, IDF
 from pyspark.ml.evaluation import MulticlassClassificationEvaluator
-import sparknlp
+# import sparknlp
 
-from sklearn.metrics import accuracy_score, f1_score,precision_score, recall_score
+from sklearn.metrics import accuracy_score
 import matplotlib
 import matplotlib.pyplot as plt
 matplotlib.style.use('ggplot')
@@ -24,22 +23,18 @@ spark = SparkSession.builder.master("local[1]").appName("assignment").getOrCreat
 
 data = spark.read.option("header",True).csv("twitter/Twitter_Data.csv")
 data.show(5)
-
-print(data.count())
 data = data.dropna()
 data = data.drop_duplicates()
-print(data.count())
+evaluator = MulticlassClassificationEvaluator(labelCol="label")
+print(f"Defaut metric is : {evaluator.getMetricName()}")
 
 
-#tokenizer = Tokenizer(inputCol="clean_text", outputCol="words")
 tokenizer = RegexTokenizer(inputCol="clean_text", outputCol="words", pattern="\\W")
 stop_word_remover = StopWordsRemover(inputCol="words", outputCol="stop_words")
-#bi_grams = NGram(n=2, inputCol="stop_words", outputCol="trigrams")
-#count_vec = CountVectorizer(vocabSize=2**16, inputCol="trigrams", outputCol="count_vec")
-hashtf = HashingTF(numFeatures=2**16, inputCol="stop_words", outputCol="tf")
-idf = IDF(inputCol="tf", outputCol="features", minDocFreq=5) #minDocFreq: remove sparse terms
+count_vec = CountVectorizer(inputCol="stop_words", outputCol="count_vec")
+idf = IDF(inputCol="count_vec", outputCol="features", minDocFreq=5) #minDocFreq: remove sparse terms
 label_stringIdx = StringIndexer(inputCol = "category", outputCol = "label")
-pipeline = Pipeline(stages=[tokenizer,stop_word_remover, hashtf, idf, label_stringIdx])
+pipeline = Pipeline(stages=[tokenizer,stop_word_remover, count_vec, idf, label_stringIdx])
 
 (train, test) = data.randomSplit([0.8, 0.2], seed = 555)
 
@@ -48,27 +43,62 @@ train_df = pipelineFit.transform(train)
 test_df = pipelineFit.transform(test)
 print(train_df.show(10))
 
-from pyspark.ml.classification import LogisticRegression
+# Machine Learning
 lr = LogisticRegression(maxIter=100)
-print("DT model training started")
+print("LR model training started")
 lrModel = lr.fit(train_df)
 print("training complete")
-predictions = lrModel.transform(test_df)
+train_pred = lrModel.transform(train_df)
+lr_predictions = lrModel.transform(test_df)
 
-evaluator = MulticlassClassificationEvaluator(labelCol="label")
-roc = evaluator.evaluate(predictions)
+train_roc = evaluator.evaluate(train_pred)
+roc = evaluator.evaluate(lr_predictions)
 
-print(roc)
-print(predictions.show(5))
-dt_pandas = predictions.toPandas()
-acc = accuracy_score(dt_pandas['label'],dt_pandas['prediction'])
-print(acc)
-'''
-rf = RandomForestClassifier(featuresCol= 'features', labelCol='label')
-print("Random forest model training started")
-rf_model = rf.fit(train_df)
+print(f"Train ROC is {train_roc}")
+print(f"Test ROC is {roc}")
+print(lr_predictions.show(5))
+train_pred = train_pred.toPandas()
+lr_pandas = lr_predictions.toPandas()
+train_acc = accuracy_score(train_pred['label'], train_pred['prediction'])
+acc = accuracy_score(lr_pandas['label'],lr_pandas['prediction'])
+
+print(f"train accuract is {train_acc}")
+print(f"Test accuracy is {acc}")
+
+# Naive Bayes
+
+tokenizer = RegexTokenizer(inputCol="clean_text", outputCol="words", pattern="\\W")
+stop_word_remover = StopWordsRemover(inputCol="words", outputCol="stop_words")
+bi_grams = NGram(n=2, inputCol="stop_words", outputCol="bigrams")
+count_vec = CountVectorizer(inputCol="bigrams", outputCol="count_vec")
+idf = IDF(inputCol="count_vec", outputCol="features", minDocFreq=5) #minDocFreq: remove sparse terms
+label_stringIdx = StringIndexer(inputCol = "category", outputCol = "label")
+pipeline = Pipeline(stages=[tokenizer,stop_word_remover,bi_grams, count_vec, idf, label_stringIdx])
+
+(train, test) = data.randomSplit([0.8, 0.2], seed = 555)
+
+pipelineFit = pipeline.fit(train)
+train_df = pipelineFit.transform(train)
+test_df = pipelineFit.transform(test)
+print(train_df.show(10))
+
+nb =NaiveBayes(featuresCol= 'features', labelCol='label')
+print("Naive Bayes model training started")
+nb_model = nb.fit(train_df)
 print("training complete")
-rf_predictions = rf_model.transform(test_df)
-rf_roc = evaluator.evaluate(rf_predictions)
-print(rf_roc)
-'''
+train_pred = nb_model.transform(train_df)
+nb_predictions = nb_model.transform(test_df)
+
+train_roc = evaluator.evaluate(train_pred)
+nb_roc = evaluator.evaluate(nb_predictions)
+print(f"Train ROC is {train_roc}")
+print(f"Test ROC is {nb_roc}")
+
+train_pred = train_pred.toPandas()
+nb_pandas = nb_predictions.toPandas()
+train_acc = accuracy_score(train_pred['label'], train_pred['prediction'])
+acc = accuracy_score(nb_pandas['label'],nb_pandas['prediction'])
+
+
+print(f"train accuract is {train_acc}")
+print(f"Test accuracy is {acc}")
