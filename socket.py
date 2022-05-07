@@ -4,7 +4,7 @@ import nltk
 nltk.download("stopwords")
 nltk.download('punkt')
 from nltk.corpus import stopwords 
-from nltk.tokenize import word_tokenize 
+from nltk.tokenize import regexp_tokenize
 
 stop_words = set(stopwords.words('english'))
 stop_words = stop_words.union(string.punctuation)
@@ -22,7 +22,7 @@ while True:
     with open(path) as txt:
         content = txt.read()
     content = content.lower()        
-    content_tokens = word_tokenize(content)
+    content_tokens = regexp_tokenize(content, "\w+")        
     filtered_sentence = [w for w in content_tokens if not w in stop_words]
     content = " ".join(filtered_sentence)
 
