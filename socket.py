@@ -1,18 +1,30 @@
+import socket
+import string
+import nltk
+nltk.download("stopwords")
+nltk.download('punkt')
+from nltk.corpus import stopwords 
+from nltk.tokenize import word_tokenize 
 
-from pyspark.sql import SparkSession
-from pyspark.sql.functions import explode, split
-from pyspark.ml.feature import StopWordsRemover
-import matplotlib.pyplot as plt
+stop_words = set(stopwords.words('english'))
+stop_words = stop_words.union(string.punctuation)
+s = socket.socket()
+host = "127.0.0.1"
+port = 9996
+s.bind((host, port))
+s.listen(5)
+print('waiting for connections')
 
-spark = SparkSession.builder.master("local[1]").appName("assignment").getOrCreate()
+while True:
+    c, addr = s.accept()
+    print("Connected with ", addr)
+    path = input("Enter file Path: ")
+    with open(path) as txt:
+        content = txt.read()
+    content = content.lower()        
+    content_tokens = word_tokenize(content)
+    filtered_sentence = [w for w in content_tokens if not w in stop_words]
+    content = " ".join(filtered_sentence)
 
-
-lines = spark.readStream.format('socket').option("host", "127.0.0.1").option("port", "9996").load()
-words = lines.select(explode(split(lines.value, " ")).alias("word"))
-wordCounts = words.groupBy('word').count().sort('count', ascending=False)
-
-query = wordCounts.writeStream.outputMode('complete').format("console").start()
-
-
-query.awaitTermination()
-
+    c.send(bytes(content, "utf-8"))
+    c.close()
